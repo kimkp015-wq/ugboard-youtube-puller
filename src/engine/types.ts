@@ -1,23 +1,15 @@
-// src/engine/types.ts
+// src/types.ts
 
-/**
- * Parsed video from YouTube RSS.
- * INTERNAL to the puller.
- */
-export interface ParsedVideo {
+export interface FeedVideo {
   videoId: string;
+  channelId: string;
   title: string;
   publishedAt: string;
-  channelId: string;
 }
 
-/**
- * Payload sent to UG Board Engine.
- * MUST match ingestion contract.
- */
-export interface EngineVideoPayload {
+export interface EngineIngestItem {
   source: "youtube";
-  source_id: string;
+  external_id: string;
   title: string;
   published_at: string;
   channel_id: string;
