@@ -1,40 +1,6 @@
-import type { ExportedHandler } from "@cloudflare/workers-types"
+name = "ugboard-youtube-puller"
+main = "src/worker.ts"
+compatibility_date = "2024-12-01"
 
-export interface Env {
-  U_INTERNAL_TOKEN: string
-}
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    if (request.method !== "POST") {
-      return new Response("Use POST", { status: 405 })
-    }
-
-    const res = await fetch(
-      "https://<YOUR-RAILWAY-URL>/api/ingestion/youtube",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.U_INTERNAL_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          trigger: "manual-fire",
-          source: "cloudflare-worker",
-        }),
-      }
-    )
-
-    return new Response(
-      JSON.stringify({
-        fired: true,
-        engine_status: res.status,
-      }),
-      {
-        headers: { "Content-Type": "application/json" },
-      }
-    )
-  },
-} satisfies ExportedHandler<Env>
-
+crons = ["0 */6 * * *"]
 
