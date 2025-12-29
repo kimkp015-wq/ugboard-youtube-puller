@@ -1,3 +1,5 @@
+import type { ExportedHandler } from "@cloudflare/workers-types"
+
 export interface Env {
   U_INTERNAL_TOKEN: string
 }
@@ -13,24 +15,25 @@ export default {
       {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${env.U_INTERNAL_TOKEN}`,
-          "Content-Type": "application/json"
+          Authorization: `Bearer ${env.U_INTERNAL_TOKEN}`,
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           trigger: "manual-fire",
-          source: "cloudflare-worker"
-        })
+          source: "cloudflare-worker",
+        }),
       }
     )
 
     return new Response(
       JSON.stringify({
         fired: true,
-        engine_status: res.status
+        engine_status: res.status,
       }),
       {
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       }
     )
-  }
-}
+  },
+} satisfies ExportedHandler<Env>
+
