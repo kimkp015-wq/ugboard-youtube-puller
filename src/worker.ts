@@ -3,49 +3,38 @@
 import { fetchChannelFeed } from "./rss/fetch";
 import { parseFeed } from "./rss/parse";
 import { mapToEnginePayload } from "./engine/mapper";
+import { EngineIngestItem } from "./types";
 
-/**
- * Environment bindings injected by Cloudflare.
- */
 export interface Env {
   UG_ENGINE_INGEST_URL: string;
   UG_ENGINE_INGEST_TOKEN: string;
   YOUTUBE_CHANNELS: string; // comma-separated channel IDs
 }
 
-/**
- * Cloudflare Worker entrypoint.
- * Triggered ONLY by cron.
- */
 export default {
   async scheduled(
     _event: ScheduledEvent,
     env: Env,
     ctx: ExecutionContext,
-  ): Promise<void> {
-    // Never block the scheduler
+  ) {
     ctx.waitUntil(runIngestion(env));
   },
 };
 
 /**
  * Main ingestion flow.
- *
- * Guarantees:
- * - Never throws
- * - Never crashes the worker
- * - Each channel is isolated
+ * Never throws.
  */
 async function runIngestion(env: Env): Promise<void> {
   try {
     const channels = parseChannels(env.YOUTUBE_CHANNELS);
-    if (channels.length === 0) {
-      console.log("No YouTube channels configured");
-      return;
-    }
+    if (channels.length === 0) return;
+
+    // 🔒 Dedupe store (per run)
+    const seen = new Set<string>();
 
     for (const channelId of channels) {
-      await ingestChannel(channelId, env);
+      await ingestChannel(channelId, env, seen);
     }
   } catch (err) {
     console.error("Worker fatal error:", err);
@@ -53,39 +42,27 @@ async function runIngestion(env: Env): Promise<void> {
 }
 
 /**
- * Ingest ONE channel safely.
- *
- * Failure here:
- * - does NOT affect other channels
- * - does NOT crash worker
+ * Process one channel safely.
  */
 async function ingestChannel(
   channelId: string,
   env: Env,
+  seen: Set<string>,
 ): Promise<void> {
   try {
-    // 1. Fetch RSS XML
     const xml = await fetchChannelFeed(channelId);
-    if (!xml) {
-      console.warn(`No RSS returned for channel ${channelId}`);
-      return;
-    }
+    if (!xml) return;
 
-    // 2. Parse RSS entries
-    const entries = parseFeed(xml, channelId);
-    if (entries.length === 0) {
-      console.log(`No entries for channel ${channelId}`);
-      return;
-    }
+    const parsed = parseFeed(xml, channelId);
+    if (parsed.length === 0) return;
 
-    // 3. Normalize → engine payload
-    const payload = mapToEnginePayload(entries);
-    if (payload.length === 0) {
-      console.log(`Nothing to push for channel ${channelId}`);
-      return;
-    }
+    let payload = mapToEnginePayload(parsed);
+    if (payload.length === 0) return;
 
-    // 4. Push to engine
+    // 🔁 DEDUPE
+    payload = dedupePayload(payload, seen);
+    if (payload.length === 0) return;
+
     await pushToEngine(payload, env);
   } catch (err) {
     console.error(`Channel ${channelId} failed`, err);
@@ -93,10 +70,26 @@ async function ingestChannel(
 }
 
 /**
- * Push a batch to UG Board Engine ingestion endpoint.
- *
- * Engine is the source of truth.
- * Worker is stateless.
+ * Remove duplicates within this run.
+ */
+function dedupePayload(
+  items: EngineIngestItem[],
+  seen: Set<string>,
+): EngineIngestItem[] {
+  const out: EngineIngestItem[] = [];
+
+  for (const item of items) {
+    const key = `${item.source}:${item.external_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+
+  return out;
+}
+
+/**
+ * Push batch to UG Board Engine.
  */
 async function pushToEngine(
   payload: unknown[],
@@ -113,25 +106,20 @@ async function pushToEngine(
     });
 
     if (!res.ok) {
-      console.error(
-        "Engine rejected ingest",
-        res.status,
-        await res.text(),
-      );
+      console.error("Ingest rejected:", res.status);
     }
   } catch (err) {
-    console.error("Push to engine failed:", err);
+    console.error("Push failed:", err);
   }
 }
 
 /**
- * Parse comma-separated channel IDs safely.
+ * Parse comma-separated channels safely.
  */
 function parseChannels(value?: string): string[] {
   if (!value) return [];
-
   return value
     .split(",")
-    .map((v) => v.trim())
+    .map((c) => c.trim())
     .filter(Boolean);
 }
