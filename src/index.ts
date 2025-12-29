@@ -1,60 +1,36 @@
-import { CHANNELS } from "./feeds/channels";
-import { fetchChannelFeed } from "./rss/fetch";
-import { parseFeed } from "./rss/parse";
-import { normalizeEntry } from "./rss/normalize";
-import { postToEngine } from "./client/engine";
-import { dedupe } from "./guards/dedupe";
-import { nowIso } from "./utils/time";
-import { log } from "./utils/log";
+export interface Env {
+  U_INTERNAL_TOKEN: string
+}
 
-export default {
-  async fetch(
-    _req: Request,
-    env: Env,
-    ctx: ExecutionContext
-  ): Promise<Response> {
-    // This worker is CRON-only
-    return new Response("OK", { status: 200 });
-  },
-
-  async scheduled(
-    _event: ScheduledEvent,
-    env: Env,
-    ctx: ExecutionContext
-  ) {
-    log.info("cron.start", { at: nowIso() });
-
-    const seen = new Set<string>();
-    let posted = 0;
-
-    for (const channel of CHANNELS) {
-      try {
-        const xml = await fetchChannelFeed(channel.id);
-        if (!xml) continue;
-
-        const entries = parseFeed(xml);
-
-        for (const entry of entries) {
-          if (dedupe(seen, entry.videoId)) continue;
-
-          const payload = normalizeEntry(entry, channel);
-
-          const ok = await postToEngine(payload, env);
-          if (ok) posted++;
-        }
-      } catch (err) {
-        // HARD RULE: never crash the whole run
-        log.error("channel.failed", {
-          channel: channel.id,
-          error: String(err),
-        });
-        continue;
-      }
+const worker: ExportedHandler<Env> = {
+  async fetch(request, env) {
+    if (request.method !== "POST") {
+      return new Response("Use POST", { status: 405 })
     }
 
-    log.info("cron.complete", {
-      posted,
-      finished_at: nowIso(),
-    });
-  },
-};
+    const res = await fetch(
+      "https://<YOUR-RAILWAY-URL>/api/ingestion/youtube",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.U_INTERNAL_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          trigger: "manual-fire",
+          source: "cloudflare-worker"
+        })
+      }
+    )
+
+    return new Response(
+      JSON.stringify({
+        fired: true,
+        engine_status: res.status
+      }),
+      { headers: { "Content-Type": "application/json" } }
+    )
+  }
+}
+
+export default worker
