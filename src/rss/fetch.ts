@@ -1,23 +1,34 @@
-// src/rss/fetch.ts
+export interface Env {
+  U_INTERNAL_TOKEN: string;
+}
 
-export async function fetchChannelFeed(
-  channelId: string,
-): Promise<string | null> {
-  const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`;
-
-  try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": "ugboard-puller/1.0" },
-    });
-
-    if (!res.ok) {
-      console.error("RSS fetch failed", channelId, res.status);
-      return null;
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // Only allow POST
+    if (request.method !== "POST") {
+      return new Response("Method Not Allowed", { status: 405 });
     }
 
-    return await res.text();
-  } catch (err) {
-    console.error("RSS network error", channelId, err);
-    return null;
-  }
-}
+    // 🔐 AUTH CHECK
+    const scheme = request.headers.get("scheme");
+    const credentials = request.headers.get("credentials");
+
+    if (scheme !== "INTERNAL" || credentials !== env.U_INTERNAL_TOKEN) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized puller access" }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // 🤝 HANDSHAKE RESPONSE
+    return new Response(
+      JSON.stringify({
+        status: "ok",
+        worker: "youtube-puller",
+        handshake: true,
+      }),
+      { headers: { "Content-Type": "application/json" } }
+    );
+  },
+};
+
