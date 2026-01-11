@@ -4,7 +4,11 @@ export interface Env {
 }
 
 export default {
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+  async scheduled(
+    event: ScheduledEvent,
+    env: Env,
+    ctx: ExecutionContext
+  ) {
     const res = await fetch(
       `${env.ENGINE_BASE_URL}/internal/youtube/pull`,
       {
