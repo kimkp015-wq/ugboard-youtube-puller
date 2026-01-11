@@ -1,14 +1,19 @@
-name = "ugboard-youtube-puller"
-type = "javascript"
+name = "youtube-ingestion-worker"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
 
-account_id = "YOUR_ACCOUNT_ID"
-workers_dev = true
-compatibility_date = "2026-01-11"
+# THESE ARE YOUR SETTINGS - CHANGE ONLY THE URL
+[vars]
+ENGINE_BASE_URL = "https://web-production-c6cb2.up.railway.app"  # ← YOUR RAILWAY URL
+MAX_RETRIES = "3"
+RETRY_DELAY_MS = "1000"
+
+# Secrets - we'll set these separately
+# INTERNAL_TOKEN = "1994199620002019866"
+# MANUAL_TRIGGER_TOKEN = "test123"
 
 [triggers]
-crons = ["*/30 * * * *"]
+crons = ["*/30 * * * *"]  # Every 30 minutes
 
-[vars]
-ENGINE_BASE_URL = "https://your-engine-domain.com"
-INTERNAL_TOKEN = "super-secret-internal-token"
-MANUAL_TRIGGER_TOKEN = "super-secret-123"
+[env]
+# Leave this empty
