@@ -1,65 +1,86 @@
-import Parser from "rss-parser"
-
 export interface Env {
   ENGINE_BASE_URL: string
   INTERNAL_TOKEN: string
   MANUAL_TRIGGER_TOKEN: string
-  VIDEO_CACHE: KVNamespace
 }
 
-const parser = new Parser()
-const MAX_VIDEOS_PER_CHANNEL = 5
-const MAX_RETRIES = 3
-const RETRY_BASE_DELAY_MS = 500 // start with 0.5s
-
-const YOUTUBE_CHANNELS = [
-  { source: "youtube", external_id: "UC6-Bm3TkbOOGh0uEfbRxeQg", name: "Eddy Kenzo" },
-  { source: "youtube", external_id: "UCd6-4yHh0d1D8tG4Adq5dxg", name: "Masaka Kids Afrikana" },
-  // ... add all other channels here
-]
-
-// -------------------------
-// Utility Functions
-// -------------------------
 function validateUrl(url: string) {
   try {
     new URL(url)
     return true
-  } catch {
+  } catch (err) {
     return false
   }
 }
 
-function mapRssToItems(
-  channel: { source: string; external_id: string; name: string },
-  feed: any
-) {
-  return feed.items.slice(0, MAX_VIDEOS_PER_CHANNEL).map((item: any) => ({
-    source: channel.source,
-    external_id: item.id.replace("yt:video:", ""),
-    title: item.title,
-    url: item.link,
-    published_at: item.pubDate,
-    artist: channel.name,
-  }))
-}
-
-async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_RETRIES): Promise<Response> {
-  for (let attempt = 0; attempt < retries; attempt++) {
-    try {
-      const res = await fetch(url, options)
-      if (res.ok) return res
-      console.warn(`Fetch attempt ${attempt + 1} failed with status ${res.status}`)
-    } catch (err) {
-      console.warn(`Fetch attempt ${attempt + 1} error:`, err)
-    }
-    await new Promise((r) => setTimeout(r, RETRY_BASE_DELAY_MS * Math.pow(2, attempt)))
-  }
-  throw new Error(`Failed to fetch ${url} after ${retries} attempts`)
-}
-
-// -------------------------
-// Core Job Logic
-// -------------------------
+/**
+ * Core YouTube pull logic.
+ * Sends an idempotent request to the Engine ingestion endpoint.
+ */
 async function runYoutubePull(env: Env) {
-  const engineUrl = `${env.
+  // Ensure base URL ends without a trailing slash
+  const engineBase = env.ENGINE_BASE_URL.replace(/\/+$/, "")
+  const url = `${engineBase}/ingest/youtube`
+
+  if (!validateUrl(url)) {
+    console.error("Invalid ENGINE_BASE_URL:", url)
+    return
+  }
+
+  const payload = { items: [] } // required to avoid 422
+
+  // Retry wrapper for transient network errors
+  const maxRetries = 3
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.INTERNAL_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      })
+
+      console.log("ENGINE STATUS:", res.status)
+
+      if (res.ok) return
+      console.warn(`Attempt ${attempt}: Received non-OK status ${res.status}`)
+    } catch (err) {
+      console.error(`Attempt ${attempt}: Fetch error`, err)
+    }
+
+    // Exponential backoff: 500ms → 1s → 2s
+    await new Promise((r) => setTimeout(r, 500 * 2 ** (attempt - 1)))
+  }
+
+  console.error("Failed to send payload to engine after retries")
+}
+
+export default {
+  /**
+   * HTTP fetch handler
+   * Allows manual triggering via secret header
+   */
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    const url = new URL(request.url)
+
+    // Manual trigger path
+    if (
+      url.pathname === "/admin/run-job" &&
+      request.headers.get("X-Manual-Trigger") === env.MANUAL_TRIGGER_TOKEN
+    ) {
+      await runYoutubePull(env)
+      return new Response("Job manually triggered!", { status: 200 })
+    }
+
+    return new Response("UG Board YouTube Puller Worker", { status: 200 })
+  },
+
+  /**
+   * Cron job handler
+   */
+  async scheduled(_controller: any, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(runYoutubePull(env))
+  },
+}
