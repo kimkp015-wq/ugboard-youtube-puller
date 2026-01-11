@@ -5,7 +5,7 @@
     "fetch:youtube": "python3 src/fetch_youtube_ids.py",
     "build": "npm run fetch:youtube && wrangler build",
     "deploy": "npm run fetch:youtube && wrangler deploy",
-    "dev": "wrangler dev --local"
+    "dev": "wrangler dev --test-scheduled"
   },
   "dependencies": {
     "wrangler": "^3.0.0"
