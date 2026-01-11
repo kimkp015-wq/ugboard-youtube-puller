@@ -1,4 +1,7 @@
-// worker.ts
+// src/worker.ts
+
+import { fetchAllVideos, VideoItem } from "./rss"
+import { logStatus } from "./utils"
 
 export interface Env {
   ENGINE_BASE_URL: string
@@ -9,16 +12,23 @@ export interface Env {
 // Core job logic
 async function runYoutubePull(env: Env) {
   try {
+    const items: VideoItem[] = await fetchAllVideos()
+
+    if (!items.length) {
+      logStatus("No videos found. Skipping ingestion.")
+      return
+    }
+
     const res = await fetch(`${env.ENGINE_BASE_URL}/ingest/youtube`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${env.INTERNAL_TOKEN}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ items: [] }), // <-- required to avoid 422
+      body: JSON.stringify({ items }),
     })
 
-    console.log("ENGINE STATUS:", res.status)
+    logStatus("ENGINE STATUS:", res.status, "VIDEOS SENT:", items.length)
   } catch (err) {
     console.error("ENGINE ERROR:", err)
   }
@@ -29,7 +39,6 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url)
 
-    // Only trigger if secret matches
     if (
       url.pathname === "/admin/run-job" &&
       request.headers.get("X-Manual-Trigger") === env.MANUAL_TRIGGER_TOKEN
