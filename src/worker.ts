@@ -8,9 +8,6 @@ export interface Env {
 // Helpers
 // -------------------------
 
-/**
- * Validate a URL string. Returns true if valid, false otherwise.
- */
 function validateUrl(url: string) {
   try {
     new URL(url)
@@ -20,11 +17,12 @@ function validateUrl(url: string) {
   }
 }
 
-/**
- * List of monitored YouTube channels with basic info.
- * These will be sent to the engine for ingestion.
- */
+// -------------------------
+// YouTube Channels
+// -------------------------
+
 const YOUTUBE_CHANNELS = [
+  // Mainstream Artists
   { source: "youtube", external_id: "UC6-Bm3TkbOOGh0uEfbRxeQg", name: "Eddy Kenzo" },
   { source: "youtube", external_id: "UCd6-4yHh0d1D8tG4Adq5dxg", name: "Masaka Kids Afrikana" },
   { source: "youtube", external_id: "UCX2e4bzG3KbLZfYh_2qY3Ug", name: "Triplets Ghetto Kids" },
@@ -43,17 +41,27 @@ const YOUTUBE_CHANNELS = [
   { source: "youtube", external_id: "UCs3y1e1w-FJzXhP0z4q6jRQ", name: "King Saha Official" },
   { source: "youtube", external_id: "UCfFg1JdFgO9D6j3Zx4j8kMg", name: "Pastor Wilson Bugembe" },
   { source: "youtube", external_id: "UCN2M2v5kxPj9sJxV5nF1cDw", name: "Azawi" },
-  // Add emerging artists similarly...
+
+  // Emerging & Genre-Specific Artists
+  { source: "youtube", external_id: "UCXy2BaRXh8R2KjXY1XYG6kA", name: "Joshua Baraka" },
+  { source: "youtube", external_id: "UCiR7x-Q0Nd-UQJxPZh5O9CQ", name: "Chosen Becky" },
+  { source: "youtube", external_id: "UC4tJlpOW8-6xH9x6jN9rZJQ", name: "Lydia Jazmine" },
+  { source: "youtube", external_id: "UCwPQtH3kLyx7dD9qX3h8mZg", name: "Vinka" },
+  { source: "youtube", external_id: "UCp2mI9oE0x9bL8jL2kFq3mQ", name: "Alien Skin Official" },
+  { source: "youtube", external_id: "UCd9KqX8u9M5hJ3hX9X2k4rQ", name: "Rema Namakula" },
+  { source: "youtube", external_id: "UCfJ3XoL1tH7kPqP7f9G8j1Q", name: "Juliana Kanyomozi" },
+  { source: "youtube", external_id: "UCXk3qO8rF9L6jR4p6Q8x5g", name: "Nana Nyadia" },
+
+  // Record Labels / Music Hubs
+  { source: "youtube", external_id: "UC6v6q3P8rL6jH9xK3f5R2g", name: "Swangz Avenue" },
+  { source: "youtube", external_id: "UCXy8R3pK6mL5vH8nQ2jF1g", name: "Black Market Afrika" },
+  { source: "youtube", external_id: "UCwP6QXy9H2L8vJ9kF3t5Qg", name: "Cavton Music UG" },
 ]
 
 // -------------------------
 // Core job logic
 // -------------------------
 
-/**
- * Send YouTube channels to the engine.
- * Logs ENGINE STATUS and handles invalid URL.
- */
 async function runYoutubePull(env: Env) {
   const url = `${env.ENGINE_BASE_URL}/ingest/youtube`
 
@@ -82,7 +90,6 @@ async function runYoutubePull(env: Env) {
 // -------------------------
 
 export default {
-  // Manual HTTP trigger
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url)
 
@@ -97,7 +104,6 @@ export default {
     return new Response("Hello from UG Board Worker!", { status: 200 })
   },
 
-  // Cron trigger
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(runYoutubePull(env))
   },
