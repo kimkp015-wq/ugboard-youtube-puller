@@ -2,4 +2,5 @@ name = "ugboard-youtube-puller"
 main = "src/worker.ts"
 compatibility_date = "2024-12-01"
 
+# Cron schedule: every 6 hours
 crons = ["0 */6 * * *"]
