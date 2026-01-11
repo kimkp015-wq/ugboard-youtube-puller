@@ -8,13 +8,14 @@ export interface Env {
 }
 
 const parser = new Parser()
-
 const MAX_VIDEOS_PER_CHANNEL = 5
+const MAX_RETRIES = 3
+const RETRY_BASE_DELAY_MS = 500 // start with 0.5s
 
 const YOUTUBE_CHANNELS = [
   { source: "youtube", external_id: "UC6-Bm3TkbOOGh0uEfbRxeQg", name: "Eddy Kenzo" },
   { source: "youtube", external_id: "UCd6-4yHh0d1D8tG4Adq5dxg", name: "Masaka Kids Afrikana" },
-  // ... add the rest of the channels
+  // ... add all other channels here
 ]
 
 function validateUrl(url: string) {
@@ -38,6 +39,24 @@ function mapRssToItems(
     published_at: item.pubDate,
     artist: channel.name,
   }))
+}
+
+// -------------------------
+// Fetch with retries
+// -------------------------
+async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_RETRIES): Promise<Response> {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await fetch(url, options)
+      if (res.ok) return res
+      console.warn(`Fetch attempt ${attempt + 1} failed with status ${res.status}`)
+    } catch (err) {
+      console.warn(`Fetch attempt ${attempt + 1} error:`, err)
+    }
+    // exponential backoff
+    await new Promise((r) => setTimeout(r, RETRY_BASE_DELAY_MS * Math.pow(2, attempt)))
+  }
+  throw new Error(`Failed to fetch ${url} after ${retries} attempts`)
 }
 
 // -------------------------
@@ -78,7 +97,7 @@ async function runYoutubePull(env: Env) {
   }
 
   try {
-    const res = await fetch(engineUrl, {
+    const res = await fetchWithRetry(engineUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${env.INTERNAL_TOKEN}`,
@@ -89,8 +108,8 @@ async function runYoutubePull(env: Env) {
 
     console.log("ENGINE STATUS:", res.status)
 
+    // Update KV cache if ingestion succeeded
     if (res.ok) {
-      // Update KV cache
       for (const item of allItems) {
         const cacheKey = `yt:${item.external_id}`
         await env.VIDEO_CACHE.put(cacheKey, "1", { expirationTtl: 60 * 60 * 24 * 30 }) // 30 days
@@ -122,3 +141,4 @@ export default {
     ctx.waitUntil(runYoutubePull(env))
   },
 }
+
