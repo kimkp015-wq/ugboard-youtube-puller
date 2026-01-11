@@ -1,6 +1,17 @@
-name = "ugboard-youtube-puller"
-main = "src/worker.ts"
-compatibility_date = "2024-12-01"
+# wrangler.toml
 
-# Cron schedule: every 6 hours
-crons = ["0 */6 * * *"]
+name = "ugboard-youtube-puller"       # Worker name (must match dashboard)
+main = "src/worker.ts"                # Path to your worker.ts
+compatibility_date = "2024-12-01"     # Cloudflare runtime compatibility
+
+# Cron schedule: runs every 30 minutes
+crons = ["*/30 * * * *"]
+
+# Environment variables / secrets
+[vars]
+# (Optional) Any non-secret variables go here
+
+[secrets]
+ENGINE_BASE_URL = "https://web-production-c6cb2.up.railway.app"
+INTERNAL_TOKEN = "<your internal token>"
+MANUAL_TRIGGER_TOKEN = "super-secret-123"  # Must match curl header
