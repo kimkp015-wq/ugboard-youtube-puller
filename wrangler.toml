@@ -1,28 +1,5 @@
-import type { ExportedHandler } from "@cloudflare/workers-types"
+name = "ugboard-cron-worker"
+main = "src/worker.ts"
+compatibility_date = "2024-12-01"
 
-export interface Env {
-  ENGINE_BASE_URL: string
-  INTERNAL_TOKEN: string
-}
-
-export default {
-  async scheduled(event, env, ctx) {
-    const res = await fetch(
-      `${env.ENGINE_BASE_URL}/api/ingestion/youtube`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.INTERNAL_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          trigger: "cron",
-          source: "cloudflare-worker",
-        }),
-      }
-    )
-
-    console.log("ENGINE STATUS:", res.status)
-  },
-} satisfies ExportedHandler<Env>
-
+crons = ["0 */6 * * *"]
