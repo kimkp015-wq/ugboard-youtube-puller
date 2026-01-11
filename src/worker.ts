@@ -1,28 +1,33 @@
-// worker.ts
+async function runMyScheduledJob(env: Env) {
+  const res = await fetch(`${env.ENGINE_BASE_URL}/ingest/youtube`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.INTERNAL_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ items: [] }), // Cron body
+  });
 
-export interface Env {
-  ENGINE_BASE_URL: string
-  INTERNAL_TOKEN: string
+  console.log("ENGINE STATUS:", res.status);
 }
 
 export default {
-  // Cron handler — triggered by schedule
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    try {
-      // Send POST request to your engine with empty items array
-      const res = await fetch(`${env.ENGINE_BASE_URL}/ingest/youtube`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.INTERNAL_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ items: [] }), // ✅ fixed 422
-      })
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    const url = new URL(request.url);
 
-      // Log the HTTP status from FastAPI
-      console.log("ENGINE STATUS:", res.status)
-    } catch (err) {
-      console.error("WORKER ERROR:", err)
+    // Secure manual trigger
+    if (
+      url.pathname === "/admin/run-job" &&
+      request.headers.get("X-Manual-Trigger") === "YOUR_SECRET_TOKEN"
+    ) {
+      await runMyScheduledJob(env);
+      return new Response("Job manually triggered!");
     }
+
+    return new Response("Hello World!");
   },
-}
+
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(runMyScheduledJob(env));
+  },
+};
