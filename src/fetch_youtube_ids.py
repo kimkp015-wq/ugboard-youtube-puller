@@ -1,55 +1,32 @@
 # src/fetch_youtube_ids.py
 
 import json
-import feedparser
 from pathlib import Path
 
-# -------------------------------
-# Configuration: artist channels
-# -------------------------------
-
 CHANNELS = [
-    {"name": "Eddy Kenzo", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
-    {"name": "Masaka Kids Afrikana", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
-    {"name": "Triplets Ghetto Kids", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
-    {"name": "Sheebah Karungi", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
-    {"name": "Jose Chameleone", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
-    {"name": "Spice Diana", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
-    {"name": "David Lutalo", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
-    {"name": "Jehovah Shalom A Capella", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
-    {"name": "Pallaso", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
-    {"name": "Bobi Wine", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
-    # Add remaining channels here...
+    {"name": "Eddy Kenzo", "id": "UC-eddykenzo", "subscribers": 2760000},
+    {"name": "Masaka Kids Afrikana", "id": "UC-masakakids", "subscribers": 4470000},
+    {"name": "Triplets Ghetto Kids", "id": "UC-tripletsghetto", "subscribers": 2100000},
+    {"name": "Sheebah Karungi", "id": "UC-sheebah", "subscribers": 816000},
+    {"name": "Jose Chameleone", "id": "UC-chameleone", "subscribers": 777000},
+    {"name": "Spice Diana", "id": "UC-spicediana", "subscribers": 646000},
+    # Add all other artists here...
 ]
 
-OUTPUT_FILE = Path("src/youtube_items.json")
-
-
-# -------------------------------
-# Fetch latest videos per channel
-# -------------------------------
-
-def fetch_videos():
-    items = []
-    for channel in CHANNELS:
-        feed = feedparser.parse(channel["url"])
-        for entry in feed.entries:
-            item = {
-                "source": "youtube",
-                "external_id": entry.yt_videoid,
-                "title": entry.title,
-                "channel": channel["name"],
-                "url": entry.link,
-            }
-            items.append(item)
-    return items
-
+OUTPUT_FILE = Path(__file__).parent / "youtube_items.json"
 
 def main():
-    videos = fetch_videos()
-    OUTPUT_FILE.write_text(json.dumps({"items": videos}, indent=2, ensure_ascii=False))
-    print(f"Saved {len(videos)} video items to {OUTPUT_FILE}")
+    items = []
+    for ch in CHANNELS:
+        items.append({
+            "source": "youtube",
+            "external_id": ch["id"],
+            "artist_name": ch["name"],
+            "subscribers": ch["subscribers"]
+        })
 
+    OUTPUT_FILE.write_text(json.dumps({"items": items}, indent=2))
+    print(f"Generated {len(items)} YouTube items → {OUTPUT_FILE}")
 
 if __name__ == "__main__":
     main()
