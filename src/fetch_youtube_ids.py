@@ -1,88 +1,55 @@
-# scripts/fetch_youtube_ids.py
+# src/fetch_youtube_ids.py
 
-import os
 import json
-import requests
+import feedparser
+from pathlib import Path
 
-# --------------------------
-# Configuration
-# --------------------------
-API_KEY = os.getenv("YOUTUBE_API_KEY")  # Set your API key in environment
-SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
+# -------------------------------
+# Configuration: artist channels
+# -------------------------------
 
-ARTISTS = [
-    # Mainstream
-    "Eddy Kenzo",
-    "Masaka Kids Afrikana",
-    "Triplets Ghetto Kids",
-    "Sheebah Karungi",
-    "Jose Chameleone",
-    "Spice Diana",
-    "David Lutalo",
-    "Jehovah Shalom A Capella",
-    "Pallaso",
-    "Bobi Wine",
-    "Radio & Weasel Goodlyfe",
-    "Bebe Cool",
-    "Ykee Benda",
-    "B2C Entertainment",
-    "Fik Fameica",
-    "King Saha Official",
-    "Pastor Wilson Bugembe",
-    "Azawi",
-    # Emerging
-    "Joshua Baraka",
-    "Chosen Becky",
-    "Lydia Jazmine",
-    "Vinka",
-    "Alien Skin Official",
-    "Rema Namakula",
-    "Juliana Kanyomozi",
-    "Nana Nyadia",
-    # Labels
-    "Swangz Avenue",
-    "Black Market Afrika",
-    "Cavton Music UG",
+CHANNELS = [
+    {"name": "Eddy Kenzo", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
+    {"name": "Masaka Kids Afrikana", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
+    {"name": "Triplets Ghetto Kids", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
+    {"name": "Sheebah Karungi", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
+    {"name": "Jose Chameleone", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
+    {"name": "Spice Diana", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
+    {"name": "David Lutalo", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
+    {"name": "Jehovah Shalom A Capella", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
+    {"name": "Pallaso", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
+    {"name": "Bobi Wine", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxx"},
+    # Add remaining channels here...
 ]
 
-# --------------------------
-# Helper function
-# --------------------------
-def get_channel_id(name: str) -> str:
-    params = {
-        "part": "snippet",
-        "q": name,
-        "type": "channel",
-        "maxResults": 1,
-        "key": API_KEY,
-    }
-    response = requests.get(SEARCH_URL, params=params)
-    data = response.json()
-    items = data.get("items", [])
-    if not items:
-        return ""
-    return items[0]["snippet"]["channelId"]
+OUTPUT_FILE = Path("src/youtube_items.json")
 
-# --------------------------
-# Main
-# --------------------------
+
+# -------------------------------
+# Fetch latest videos per channel
+# -------------------------------
+
+def fetch_videos():
+    items = []
+    for channel in CHANNELS:
+        feed = feedparser.parse(channel["url"])
+        for entry in feed.entries:
+            item = {
+                "source": "youtube",
+                "external_id": entry.yt_videoid,
+                "title": entry.title,
+                "channel": channel["name"],
+                "url": entry.link,
+            }
+            items.append(item)
+    return items
+
+
 def main():
-    channels = []
-    for artist in ARTISTS:
-        channel_id = get_channel_id(artist)
-        if not channel_id:
-            print(f"[WARN] Could not find channel for {artist}")
-            continue
-        channels.append({
-            "id": channel_id,
-            "name": artist
-        })
-        print(f"[OK] {artist} → {channel_id}")
+    videos = fetch_videos()
+    OUTPUT_FILE.write_text(json.dumps({"items": videos}, indent=2, ensure_ascii=False))
+    print(f"Saved {len(videos)} video items to {OUTPUT_FILE}")
 
-    # Save to JSON
-    with open("src/youtube_channels.json", "w", encoding="utf-8") as f:
-        json.dump(channels, f, indent=2)
-    print("\n✅ Channels saved to src/youtube_channels.json")
 
 if __name__ == "__main__":
     main()
