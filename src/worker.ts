@@ -1,48 +1,21 @@
 export interface Env {
-  U_INTERNAL_TOKEN: string;
-  UG_ENGINE_INGEST_URL: string;
-}
-
-async function pushToEngine(
-  payload: unknown[],
-  env: Env,
-): Promise<void> {
-  try {
-    const res = await fetch(env.UG_ENGINE_INGEST_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        // 🔐 CANONICAL ENGINE AUTH
-        scheme: "INTERNAL",
-        credentials: env.U_INTERNAL_TOKEN,
-      },
-      body: JSON.stringify({ items: payload }),
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      console.error("Ingest rejected:", res.status, text);
-    } else {
-      console.log("Ingest accepted:", res.status);
-    }
-  } catch (err) {
-    console.error("Push failed:", err);
-  }
+  ENGINE_BASE_URL: string
+  INTERNAL_TOKEN: string
 }
 
 export default {
-  async scheduled(
-    _event: ScheduledEvent,
-    env: Env,
-    ctx: ExecutionContext,
-  ) {
-    // 🔥 NON-NEGOTIABLE LOG
-    console.log("UGBOARD YOUTUBE WORKER CRON FIRED");
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    const res = await fetch(
+      `${env.ENGINE_BASE_URL}/internal/youtube/pull`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.INTERNAL_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+      }
+    )
 
-    // Minimal safe payload to prove execution
-    const payload: unknown[] = [];
-
-    ctx.waitUntil(pushToEngine(payload, env));
+    console.log("ENGINE STATUS:", res.status)
   },
-};
-
+}
