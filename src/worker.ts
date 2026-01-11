@@ -1,20 +1,25 @@
-import Parser from "rss-parser"
+import Parser from "rss-parser" // npm install rss-parser
 
 export interface Env {
   ENGINE_BASE_URL: string
   INTERNAL_TOKEN: string
   MANUAL_TRIGGER_TOKEN: string
-  VIDEO_CACHE: KVNamespace // KV binding from wrangler.toml
 }
 
 const parser = new Parser()
 
+// -------------------------
+// YouTube Channels
+// -------------------------
 const YOUTUBE_CHANNELS = [
   { source: "youtube", external_id: "UC6-Bm3TkbOOGh0uEfbRxeQg", name: "Eddy Kenzo" },
   { source: "youtube", external_id: "UCd6-4yHh0d1D8tG4Adq5dxg", name: "Masaka Kids Afrikana" },
-  // Add remaining channels here...
+  // ... include all channels here as before
 ]
 
+// -------------------------
+// Helpers
+// -------------------------
 function validateUrl(url: string) {
   try {
     new URL(url)
@@ -24,6 +29,7 @@ function validateUrl(url: string) {
   }
 }
 
+// Convert RSS feed items into Engine item format
 function mapRssToItems(channel: { source: string, external_id: string, name: string }, feed: any) {
   return feed.items.map((item: any) => ({
     source: channel.source,
@@ -36,7 +42,7 @@ function mapRssToItems(channel: { source: string, external_id: string, name: str
 }
 
 // -------------------------
-// Core job logic with KV cache
+// Core job logic
 // -------------------------
 async function runYoutubePull(env: Env) {
   const engineUrl = `${env.ENGINE_BASE_URL}/ingest/youtube`
@@ -52,15 +58,8 @@ async function runYoutubePull(env: Env) {
     const rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channel.external_id}`
     try {
       const feed = await parser.parseURL(rssUrl)
-      const channelItems = mapRssToItems(channel, feed)
-
-      for (const item of channelItems) {
-        const cacheKey = `yt:${item.external_id}`
-        const exists = await env.VIDEO_CACHE.get(cacheKey)
-        if (!exists) {
-          allItems.push(item)
-        }
-      }
+      const items = mapRssToItems(channel, feed)
+      allItems.push(...items)
     } catch (err) {
       console.error(`Failed to fetch RSS for ${channel.name}:`, err)
     }
@@ -80,16 +79,7 @@ async function runYoutubePull(env: Env) {
       },
       body: JSON.stringify({ items: allItems }),
     })
-
     console.log("ENGINE STATUS:", res.status)
-
-    if (res.ok) {
-      // Update KV cache
-      for (const item of allItems) {
-        const cacheKey = `yt:${item.external_id}`
-        await env.VIDEO_CACHE.put(cacheKey, "1", { expirationTtl: 60 * 60 * 24 * 30 }) // 30 days
-      }
-    }
   } catch (err) {
     console.error("ENGINE ERROR:", err)
   }
@@ -114,6 +104,9 @@ export default {
 
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(runYoutubePull(env))
+  },
+}
+
   },
 }
 
