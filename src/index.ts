@@ -1,7 +1,7 @@
 export interface Env {
   ENGINE_BASE_URL: string;
   INTERNAL_TOKEN: string;
-  MANUAL_TRIGGER_TOKEN?: string;
+  // REMOVED: MANUAL_TRIGGER_TOKEN
 }
 
 function validateUrl(url: string): boolean {
@@ -19,7 +19,7 @@ async function runYoutubePull(env: Env): Promise<{ success: boolean; message: st
 
   if (!validateUrl(url)) {
     const error = `Invalid ENGINE_BASE_URL: ${url}`;
-    console.error(JSON.stringify({ event: 'url_validation_failed', error, url }));
+    console.error(JSON.stringify({ event: 'url_validation_failed', error }));
     return { success: false, message: error };
   }
 
@@ -45,7 +45,7 @@ async function runYoutubePull(env: Env): Promise<{ success: boolean; message: st
           'X-Internal-Token': env.INTERNAL_TOKEN,
           'Content-Type': 'application/json',
           'X-Request-ID': requestId,
-          'User-Agent': 'UG-Board-YouTube-Puller/1.0'
+          'User-Agent': 'UG-Board-YouTube-Cron/1.0'
         },
         body: JSON.stringify(payload)
       });
@@ -114,40 +114,20 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const requestId = crypto.randomUUID();
-    const startTime = Date.now();
-    const manualToken = env.MANUAL_TRIGGER_TOKEN || 'test123';
-    const receivedToken = request.headers.get('X-Manual-Trigger');
-
-    console.log(JSON.stringify({
-      event: 'http_request_start',
-      requestId,
-      method: request.method,
-      path: url.pathname,
-      hasManualToken: !!env.MANUAL_TRIGGER_TOKEN,
-      tokenSource: env.MANUAL_TRIGGER_TOKEN ? 'environment' : 'default',
-      timestamp: new Date().toISOString()
-    }));
-
-    // Health check endpoint
+    
+    // SIMPLE HEALTH CHECK ONLY
     if (url.pathname === '/health') {
       const responseData = {
+        service: 'UG Board YouTube Cron Worker',
+        version: '3.0-cron-only',
         status: 'healthy',
         engine_url_set: !!env.ENGINE_BASE_URL,
         has_internal_token: !!env.INTERNAL_TOKEN,
-        has_manual_token: !!env.MANUAL_TRIGGER_TOKEN,
-        manual_token_source: env.MANUAL_TRIGGER_TOKEN ? 'environment' : 'default (test123)',
-        version: '2.3-production',
+        cron_schedule: 'Every 30 minutes (e.g., 2:00, 2:30, 3:00)',
+        note: 'Cron-only operation - no manual triggers',
         timestamp: new Date().toISOString(),
         requestId
       };
-
-      const duration = Date.now() - startTime;
-      console.log(JSON.stringify({
-        event: 'health_check',
-        requestId,
-        ...responseData,
-        durationMs: duration
-      }));
 
       return new Response(
         JSON.stringify(responseData, null, 2),
@@ -161,97 +141,24 @@ export default {
       );
     }
 
-    // Manual trigger endpoint
-    if (url.pathname === '/admin/run-job') {
-      console.log(JSON.stringify({
-        event: 'manual_trigger_attempt',
-        requestId,
-        receivedToken: receivedToken ? 'present' : 'missing',
-        expectedToken: manualToken,
-        tokenMatch: receivedToken === manualToken,
-        timestamp: new Date().toISOString()
-      }));
-
-      if (receivedToken === manualToken) {
-        console.log(JSON.stringify({
-          event: 'manual_trigger_authorized',
-          requestId,
-          timestamp: new Date().toISOString()
-        }));
-
-        const result = await runYoutubePull(env);
-        const duration = Date.now() - startTime;
-
-        const responseData = {
-          success: result.success,
-          message: result.message,
-          requestId,
-          timestamp: new Date().toISOString(),
-          durationMs: duration,
-          token_source: env.MANUAL_TRIGGER_TOKEN ? 'environment' : 'default',
-          engine_status: result.status
-        };
-
-        console.log(JSON.stringify({
-          event: result.success ? 'manual_trigger_success' : 'manual_trigger_failed',
-          requestId,
-          ...responseData
-        }));
-
-        return new Response(
-          JSON.stringify(responseData, null, 2),
-          {
-            status: result.success ? 200 : (result.status || 500),
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Request-ID': requestId
-            }
-          }
-        );
-      }
-    }
-
-    // Default response (when no endpoint matches)
-    const duration = Date.now() - startTime;
-    const responseData = {
-      service: 'UG Board YouTube Puller Worker',
-      version: '2.3-production',
-      endpoints: [
-        {
-          method: 'GET',
-          path: '/health',
-          description: 'Health check and configuration status'
-        },
-        {
-          method: 'POST',
-          path: '/admin/run-job',
-          description: 'Manual ingestion trigger',
-          required_header: 'X-Manual-Trigger',
-          note: env.MANUAL_TRIGGER_TOKEN 
-            ? 'Token configured in environment' 
-            : 'Using default token: test123'
-        }
-      ],
-      cron_schedule: 'Every 30 minutes (e.g., 2:00, 2:30, 3:00)',
-      configuration: {
-        engine_url_configured: !!env.ENGINE_BASE_URL,
-        internal_token_configured: !!env.INTERNAL_TOKEN,
-        manual_token_configured: !!env.MANUAL_TRIGGER_TOKEN
-      },
-      requestId,
-      timestamp: new Date().toISOString(),
-      durationMs: duration
-    };
-
-    console.log(JSON.stringify({
-      event: 'default_response',
-      requestId,
-      path: url.pathname,
-      durationMs: duration
-    }));
-
+    // DEFAULT RESPONSE - SIMPLE INFO
     return new Response(
-      JSON.stringify(responseData, null, 2),
+      JSON.stringify({
+        service: 'UG Board YouTube Cron Worker',
+        version: '3.0-cron-only',
+        description: 'Automated YouTube ingestion via cron schedule',
+        endpoints: [
+          {
+            method: 'GET',
+            path: '/health',
+            description: 'Health check and status'
+          }
+        ],
+        cron_schedule: 'Every 30 minutes',
+        note: 'This worker runs automatically on schedule. No manual triggers.',
+        requestId,
+        timestamp: new Date().toISOString()
+      }, null, 2),
       {
         status: 200,
         headers: {
