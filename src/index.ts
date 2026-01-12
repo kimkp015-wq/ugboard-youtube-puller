@@ -1,4 +1,5 @@
 async function runYoutubePull(env: Env): Promise<{ success: boolean; message: string }> {
+  // Ensure base URL ends without a trailing slash
   const engineBase = env.ENGINE_BASE_URL.replace(/\/+$/, "")
   const url = `${engineBase}/ingest/youtube`
 
@@ -8,22 +9,22 @@ async function runYoutubePull(env: Env): Promise<{ success: boolean; message: st
     return { success: false, message: error }
   }
 
-  const payload = { items: [] }
+  const payload = { items: [] } // required to avoid 422
 
   // Retry wrapper for transient network errors
   const maxRetries = 3
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      // CORRECT HEADERS - SIMPLIFIED
+      // SIMPLIFIED HEADERS - Only X-Internal-Token needed
       const headers = {
         "Content-Type": "application/json",
-        "X-Internal-Token": env.INTERNAL_TOKEN,  // ← ONLY THIS HEADER
+        "X-Internal-Token": env.INTERNAL_TOKEN,
         "X-Request-ID": crypto.randomUUID(),
         "User-Agent": "UG-Board-YouTube-Puller/1.0"
       }
 
       console.log(`📤 Attempt ${attempt}: Calling ${url}`)
-      console.log(`🔑 Using token: ${env.INTERNAL_TOKEN ? 'Set' : 'Missing'}`)
+      console.log(`🔑 Token present: ${env.INTERNAL_TOKEN ? 'Yes' : 'No'}`)
       
       const res = await fetch(url, {
         method: "POST",
