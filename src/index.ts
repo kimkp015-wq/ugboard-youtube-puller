@@ -1,7 +1,7 @@
 export interface Env {
   ENGINE_BASE_URL: string
   INTERNAL_TOKEN: string
-  MANUAL_TRIGGER_TOKEN?: string  // ← Made optional
+  MANUAL_TRIGGER_TOKEN?: string
 }
 
 function validateUrl(url: string) {
@@ -24,37 +24,36 @@ async function runYoutubePull(env: Env): Promise<{ success: boolean; message: st
   }
 
   const payload = { items: [] }
-
   const maxRetries = 3
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const headers = {
-        "Content-Type": "application/json",
-        "X-Internal-Token": env.INTERNAL_TOKEN,
-        "X-Request-ID": crypto.randomUUID(),
-        "User-Agent": "UG-Board-YouTube-Puller/1.0"
-      }
+      const requestId = crypto.randomUUID()
+      console.log(`📤 Attempt ${attempt}: Calling ${url} [${requestId}]`)
 
-      console.log(`📤 Attempt ${attempt}: Calling ${url}`)
-      
       const res = await fetch(url, {
         method: "POST",
-        headers: headers,
+        headers: {
+          "X-Internal-Token": env.INTERNAL_TOKEN,
+          "Content-Type": "application/json",
+          "X-Request-ID": requestId,
+          "User-Agent": "UG-Board-YouTube-Puller/1.0"
+        },
         body: JSON.stringify(payload),
       })
 
-      console.log(`ENGINE STATUS (attempt ${attempt}):`, res.status)
+      console.log(`ENGINE STATUS (attempt ${attempt}):`, res.status, `[${requestId}]`)
 
       if (res.ok) {
-        const responseData = await res.text()
+        const responseText = await res.text()
         return { 
           success: true, 
-          message: `Success! Engine returned ${res.status}: ${responseData}` 
+          message: `Success! Engine returned ${res.status}: ${responseText}` 
         }
       }
       
       const errorText = await res.text()
-      console.warn(`Attempt ${attempt}: Received ${res.status}:`, errorText)
+      console.warn(`Attempt ${attempt}: Received ${res.status}:`, errorText, `[${requestId}]`)
       
       if (res.status >= 400 && res.status < 500) {
         return { success: false, message: `Engine error ${res.status}: ${errorText}` }
@@ -64,11 +63,12 @@ async function runYoutubePull(env: Env): Promise<{ success: boolean; message: st
     }
 
     if (attempt < maxRetries) {
-      await new Promise((r) => setTimeout(r, 500 * 2 ** (attempt - 1)))
+      const delay = 500 * Math.pow(2, attempt - 1)
+      await new Promise((r) => setTimeout(r, delay))
     }
   }
 
-  const error = "Failed after all retries"
+  const error = "Failed to send payload to engine after all retries"
   console.error(error)
   return { success: false, message: error }
 }
@@ -76,73 +76,158 @@ async function runYoutubePull(env: Env): Promise<{ success: boolean; message: st
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
+    const requestId = crypto.randomUUID()
+    const startTime = Date.now()
 
-    // ← ADDED: Default token fallback
-    const manualToken = env.MANUAL_TRIGGER_TOKEN || "test123"
-    const receivedToken = request.headers.get("X-Manual-Trigger")
-    
-    // Manual trigger path with better logging
-    if (url.pathname === "/admin/run-job") {
-      console.log(`🔐 Manual trigger check:`, {
-        received: receivedToken ? "yes" : "no",
-        expected: manualToken,
-        match: receivedToken === manualToken
-      })
+    console.log(JSON.stringify({
+      event: "request_start",
+      requestId,
+      method: request.method,
+      path: url.pathname,
+      time: new Date().toISOString()
+    }))
+
+    // Health check endpoint
+    if (url.pathname === "/health") {
+      const response = {
+        status: "healthy",
+        engine_url_set: !!env.ENGINE_BASE_URL,
+        has_internal_token: !!env.INTERNAL_TOKEN,
+        has_manual_token: !!env.MANUAL_TRIGGER_TOKEN,
+        manual_token_source: env.MANUAL_TRIGGER_TOKEN ? "environment" : "default (test123)",
+        timestamp: new Date().toISOString(),
+        version: "2.2-full-fix"
+      }
       
+      console.log(JSON.stringify({
+        event: "health_check",
+        requestId,
+        response,
+        durationMs: Date.now() - startTime
+      }))
+
+      return new Response(
+        JSON.stringify(response),
+        { 
+          status: 200,
+          headers: { 
+            "Content-Type": "application/json",
+            "X-Request-ID": requestId
+          }
+        }
+      )
+    }
+
+    // Manual trigger path with fallback token
+    if (url.pathname === "/admin/run-job") {
+      const manualToken = env.MANUAL_TRIGGER_TOKEN || "test123"
+      const receivedToken = request.headers.get("X-Manual-Trigger")
+      
+      console.log(JSON.stringify({
+        event: "manual_trigger_check",
+        requestId,
+        received_token: receivedToken ? "present" : "missing",
+        expected_token: manualToken,
+        token_match: receivedToken === manualToken,
+        token_source: env.MANUAL_TRIGGER_TOKEN ? "env" : "default"
+      }))
+
       if (receivedToken === manualToken) {
-        console.log("🔄 Manual trigger authorized")
+        console.log(JSON.stringify({
+          event: "manual_trigger_start",
+          requestId,
+          time: new Date().toISOString()
+        }))
+
         const result = await runYoutubePull(env)
+        const duration = Date.now() - startTime
         
+        console.log(JSON.stringify({
+          event: "manual_trigger_complete",
+          requestId,
+          success: result.success,
+          durationMs: duration,
+          message: result.message
+        }))
+
         return new Response(
           JSON.stringify({
             success: result.success,
             message: result.message,
+            requestId,
             timestamp: new Date().toISOString(),
-            note: env.MANUAL_TRIGGER_TOKEN ? "token from env" : "using default token"
+            durationMs: duration,
+            token_source: env.MANUAL_TRIGGER_TOKEN ? "environment" : "default"
           }), 
           { 
             status: result.success ? 200 : 500,
-            headers: { "Content-Type": "application/json" }
+            headers: { 
+              "Content-Type": "application/json",
+              "X-Request-ID": requestId
+            }
           }
         )
       }
     }
 
-    // Health check endpoint
-    if (url.pathname === "/health") {
-      return new Response(
-        JSON.stringify({
-          status: "healthy",
-          engine_url_set: !!env.ENGINE_BASE_URL,
-          has_token: !!env.INTERNAL_TOKEN,
-          has_manual_token: !!env.MANUAL_TRIGGER_TOKEN,
-          manual_token_source: env.MANUAL_TRIGGER_TOKEN ? "env" : "default",
-          timestamp: new Date().toISOString(),
-          version: "2.1-fallback-token"
-        }),
-        { headers: { "Content-Type": "application/json" } }
-      )
+    // Default response
+    const defaultResponse = {
+      service: "UG Board YouTube Puller Worker",
+      endpoints: [
+        { method: "GET", path: "/health", description: "Health check" },
+        { 
+          method: "POST", 
+          path: "/admin/run-job", 
+          description: "Manual trigger",
+          required_header: "X-Manual-Trigger",
+          note: env.MANUAL_TRIGGER_TOKEN ? "Token from environment" : "Using default token: test123"
+        }
+      ],
+      cron_schedule: "Every 30 minutes",
+      requestId,
+      timestamp: new Date().toISOString()
     }
 
-    // Default response
+    console.log(JSON.stringify({
+      event: "default_response",
+      requestId,
+      path: url.pathname,
+      durationMs: Date.now() - startTime
+    }))
+
     return new Response(
-      "UG Board YouTube Puller Worker\n\n" +
-      "Endpoints:\n• GET  /health\n• POST /admin/run-job (X-Manual-Trigger header)\n" +
-      "Cron: Every 30 minutes\n\n" +
-      `Manual token: ${env.MANUAL_TRIGGER_TOKEN ? "Set" : "Using default (test123)"}`,
-      { status: 200, headers: { "Content-Type": "text/plain" } }
+      JSON.stringify(defaultResponse, null, 2),
+      { 
+        status: 200,
+        headers: { 
+          "Content-Type": "application/json",
+          "X-Request-ID": requestId
+        }
+      }
     )
   },
 
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    console.log("⏰ Cron job triggered at:", new Date().toISOString())
+    const startTime = Date.now()
+    const cronId = crypto.randomUUID()
     
+    console.log(JSON.stringify({
+      event: "cron_start",
+      cronId,
+      scheduledTime: event.scheduledTime,
+      timestamp: new Date().toISOString()
+    }))
+
     const result = await runYoutubePull(env)
+    const duration = Date.now() - startTime
     
-    if (result.success) {
-      console.log("✅ Cron job succeeded:", result.message)
-    } else {
-      console.error("❌ Cron job failed:", result.message)
-    }
+    console.log(JSON.stringify({
+      event: result.success ? "cron_success" : "cron_failure",
+      cronId,
+      success: result.success,
+      message: result.message,
+      durationMs: duration,
+      timestamp: new Date().toISOString()
+    }))
   }
 }
