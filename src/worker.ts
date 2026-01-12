@@ -1,137 +1,172 @@
 export interface Env {
-  ENGINE_BASE_URL: string
-  INTERNAL_TOKEN: string
-  MANUAL_TRIGGER_TOKEN: string
+  ENGINE_BASE_URL: string;
+  INTERNAL_TOKEN: string;
+  MANUAL_TRIGGER_TOKEN?: string;  // ← Make optional
 }
 
-function validateUrl(url: string) {
+function validateUrl(url: string): boolean {
   try {
-    new URL(url)
-    return true
-  } catch (err) {
-    return false
+    new URL(url);
+    return true;
+  } catch {
+    return false;
   }
 }
 
-/**
- * Core YouTube pull logic.
- * Sends an idempotent request to the Engine ingestion endpoint.
- */
 async function runYoutubePull(env: Env): Promise<{ success: boolean; message: string }> {
-  // Ensure base URL ends without a trailing slash
-  const engineBase = env.ENGINE_BASE_URL.replace(/\/+$/, "")
-  const url = `${engineBase}/ingest/youtube`
+  const engineBase = env.ENGINE_BASE_URL.replace(/\/+$/, '');
+  const url = `${engineBase}/ingest/youtube`;
 
   if (!validateUrl(url)) {
-    const error = `Invalid ENGINE_BASE_URL: ${url}`
-    console.error(error)
-    return { success: false, message: error }
+    const error = `Invalid ENGINE_BASE_URL: ${url}`;
+    console.error(JSON.stringify({ event: 'url_validation_failed', error }));
+    return { success: false, message: error };
   }
 
-  const payload = { items: [] } // required to avoid 422
+  const payload = { items: [] };
+  const maxRetries = 3;
 
-  // Retry wrapper for transient network errors
-  const maxRetries = 3
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const res = await fetch(url, {
-        method: "POST",
+      console.log(JSON.stringify({
+        event: 'engine_request_attempt',
+        attempt,
+        url,
+        timestamp: new Date().toISOString()
+      }));
+
+      // ✅ CORRECT HEADERS - X-Internal-Token not Authorization
+      const response = await fetch(url, {
+        method: 'POST',
         headers: {
-          Authorization: `Bearer ${env.INTERNAL_TOKEN}`,
-          "Content-Type": "application/json",
+          'X-Internal-Token': env.INTERNAL_TOKEN,  // ← CHANGED
+          'Content-Type': 'application/json',
+          'X-Request-ID': crypto.randomUUID()
         },
-        body: JSON.stringify(payload),
-      })
+        body: JSON.stringify(payload)
+      });
 
-      console.log(`ENGINE STATUS (attempt ${attempt}):`, res.status)
+      console.log(`ENGINE STATUS (attempt ${attempt}):`, response.status);
 
-      if (res.ok) {
-        return { success: true, message: `Success! Engine returned ${res.status}` }
+      if (response.ok) {
+        const responseText = await response.text();
+        return {
+          success: true,
+          message: `Success! Engine returned ${response.status}: ${responseText}`
+        };
       }
-      
-      console.warn(`Attempt ${attempt}: Received non-OK status ${res.status}`)
-      
-      // If it's a client error (4xx), don't retry
-      if (res.status >= 400 && res.status < 500) {
-        return { success: false, message: `Engine error ${res.status}: ${await res.text()}` }
+
+      const errorText = await response.text();
+      console.warn(`Attempt ${attempt}: Received ${response.status}:`, errorText);
+
+      if (response.status >= 400 && response.status < 500) {
+        return {
+          success: false,
+          message: `Engine error ${response.status}: ${errorText}`
+        };
       }
-    } catch (err) {
-      console.error(`Attempt ${attempt}: Fetch error`, err)
+    } catch (error) {
+      console.error(`Attempt ${attempt}: Fetch error`, error);
     }
 
-    // Exponential backoff: 500ms → 1s → 2s
     if (attempt < maxRetries) {
-      await new Promise((r) => setTimeout(r, 500 * 2 ** (attempt - 1)))
+      const delay = 500 * Math.pow(2, attempt - 1);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
 
-  const error = "Failed to send payload to engine after all retries"
-  console.error(error)
-  return { success: false, message: error }
+  const error = 'Failed to send payload to engine after all retries';
+  console.error(error);
+  return { success: false, message: error };
 }
 
 export default {
-  /**
-   * HTTP fetch handler
-   * Allows manual triggering via secret header
-   */
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const url = new URL(request.url)
+    const url = new URL(request.url);
+    
+    // ✅ ADD TOKEN FALLBACK
+    const manualToken = env.MANUAL_TRIGGER_TOKEN || 'test123';
+    const receivedToken = request.headers.get('X-Manual-Trigger');
 
     // Manual trigger path
-    if (
-      url.pathname === "/admin/run-job" &&
-      request.headers.get("X-Manual-Trigger") === env.MANUAL_TRIGGER_TOKEN
-    ) {
-      console.log("🔄 Manual trigger received")
-      const result = await runYoutubePull(env) // ✅ FIXED: Wait for result!
-      
+    if (url.pathname === '/admin/run-job' && receivedToken === manualToken) {
+      console.log(JSON.stringify({
+        event: 'manual_trigger_authorized',
+        tokenSource: env.MANUAL_TRIGGER_TOKEN ? 'environment' : 'default',
+        timestamp: new Date().toISOString()
+      }));
+
+      const result = await runYoutubePull(env);
+
       return new Response(
         JSON.stringify({
           success: result.success,
           message: result.message,
-          timestamp: new Date().toISOString()
-        }), 
-        { 
+          timestamp: new Date().toISOString(),
+          note: env.MANUAL_TRIGGER_TOKEN ? 'token from env' : 'using default token'
+        }),
+        {
           status: result.success ? 200 : 500,
-          headers: { "Content-Type": "application/json" }
+          headers: { 'Content-Type': 'application/json' }
         }
-      )
+      );
     }
 
     // Health check endpoint
-    if (url.pathname === "/health") {
+    if (url.pathname === '/health') {
       return new Response(
         JSON.stringify({
-          status: "healthy",
+          status: 'healthy',
           engine_url_set: !!env.ENGINE_BASE_URL,
-          has_token: !!env.INTERNAL_TOKEN,
+          has_internal_token: !!env.INTERNAL_TOKEN,
+          has_manual_token: !!env.MANUAL_TRIGGER_TOKEN,
+          manual_token_source: env.MANUAL_TRIGGER_TOKEN ? 'environment' : 'default (test123)',
           timestamp: new Date().toISOString()
         }),
-        { headers: { "Content-Type": "application/json" } }
-      )
+        { headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
     // Default response
-    return new Response("UG Board YouTube Puller Worker\n\nEndpoints:\n- GET /health\n- POST /admin/run-job (with X-Manual-Trigger header)", 
-      { status: 200 }
-    )
+    return new Response(
+      JSON.stringify({
+        service: 'UG Board YouTube Puller Worker',
+        endpoints: [
+          { method: 'GET', path: '/health', description: 'Health check' },
+          {
+            method: 'POST',
+            path: '/admin/run-job',
+            description: 'Manual trigger',
+            required_header: 'X-Manual-Trigger',
+            note: env.MANUAL_TRIGGER_TOKEN
+              ? 'Token configured in environment'
+              : 'Using default token: test123'
+          }
+        ],
+        cron_schedule: 'Every 30 minutes',
+        timestamp: new Date().toISOString()
+      }, null, 2),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
   },
 
-  /**
-   * Cron job handler
-   */
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    console.log("⏰ Cron job triggered at:", new Date().toISOString())
-    
-    // Run the pull
-    const result = await runYoutubePull(env)
-    
-    // Log result
-    if (result.success) {
-      console.log("✅ Cron job succeeded:", result.message)
-    } else {
-      console.error("❌ Cron job failed:", result.message)
-    }
+    console.log(JSON.stringify({
+      event: 'cron_triggered',
+      scheduledTime: new Date(event.scheduledTime).toISOString(),
+      timestamp: new Date().toISOString()
+    }));
+
+    const result = await runYoutubePull(env);
+
+    console.log(JSON.stringify({
+      event: result.success ? 'cron_success' : 'cron_failure',
+      success: result.success,
+      message: result.message,
+      timestamp: new Date().toISOString()
+    }));
   }
-}
+};
