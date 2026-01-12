@@ -1,7 +1,7 @@
 export interface Env {
   ENGINE_BASE_URL: string
   INTERNAL_TOKEN: string
-  MANUAL_TRIGGER_TOKEN: string
+  MANUAL_TRIGGER_TOKEN?: string  // ← Made optional
 }
 
 function validateUrl(url: string) {
@@ -77,25 +77,35 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
 
-    // Manual trigger path
-    if (
-      url.pathname === "/admin/run-job" &&
-      request.headers.get("X-Manual-Trigger") === env.MANUAL_TRIGGER_TOKEN
-    ) {
-      console.log("🔄 Manual trigger received")
-      const result = await runYoutubePull(env)
+    // ← ADDED: Default token fallback
+    const manualToken = env.MANUAL_TRIGGER_TOKEN || "test123"
+    const receivedToken = request.headers.get("X-Manual-Trigger")
+    
+    // Manual trigger path with better logging
+    if (url.pathname === "/admin/run-job") {
+      console.log(`🔐 Manual trigger check:`, {
+        received: receivedToken ? "yes" : "no",
+        expected: manualToken,
+        match: receivedToken === manualToken
+      })
       
-      return new Response(
-        JSON.stringify({
-          success: result.success,
-          message: result.message,
-          timestamp: new Date().toISOString()
-        }), 
-        { 
-          status: result.success ? 200 : 500,
-          headers: { "Content-Type": "application/json" }
-        }
-      )
+      if (receivedToken === manualToken) {
+        console.log("🔄 Manual trigger authorized")
+        const result = await runYoutubePull(env)
+        
+        return new Response(
+          JSON.stringify({
+            success: result.success,
+            message: result.message,
+            timestamp: new Date().toISOString(),
+            note: env.MANUAL_TRIGGER_TOKEN ? "token from env" : "using default token"
+          }), 
+          { 
+            status: result.success ? 200 : 500,
+            headers: { "Content-Type": "application/json" }
+          }
+        )
+      }
     }
 
     // Health check endpoint
@@ -106,7 +116,9 @@ export default {
           engine_url_set: !!env.ENGINE_BASE_URL,
           has_token: !!env.INTERNAL_TOKEN,
           has_manual_token: !!env.MANUAL_TRIGGER_TOKEN,
-          timestamp: new Date().toISOString()
+          manual_token_source: env.MANUAL_TRIGGER_TOKEN ? "env" : "default",
+          timestamp: new Date().toISOString(),
+          version: "2.1-fallback-token"
         }),
         { headers: { "Content-Type": "application/json" } }
       )
@@ -116,7 +128,8 @@ export default {
     return new Response(
       "UG Board YouTube Puller Worker\n\n" +
       "Endpoints:\n• GET  /health\n• POST /admin/run-job (X-Manual-Trigger header)\n" +
-      "Cron: Every 30 minutes",
+      "Cron: Every 30 minutes\n\n" +
+      `Manual token: ${env.MANUAL_TRIGGER_TOKEN ? "Set" : "Using default (test123)"}`,
       { status: 200, headers: { "Content-Type": "text/plain" } }
     )
   },
