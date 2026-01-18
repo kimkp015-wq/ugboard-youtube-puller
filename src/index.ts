@@ -1,7 +1,6 @@
 export interface Env {
   ENGINE_BASE_URL: string;
   INTERNAL_TOKEN: string;
-  // REMOVED: MANUAL_TRIGGER_TOKEN
 }
 
 function validateUrl(url: string): boolean {
@@ -11,6 +10,34 @@ function validateUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+// ✅ ADD THIS: Sample YouTube data to send
+function getSampleYouTubeData() {
+  return [
+    {
+      id: "yt_sample_001",
+      source: "youtube",
+      external_id: "dQw4w9WgXcQ",  // Example video ID
+      title: "Sample YouTube Video 1",
+      artist: "Sample Artist",
+      youtube_views: 1000,
+      region: "Eastern",
+      published_at: new Date().toISOString(),
+      score: 0
+    },
+    {
+      id: "yt_sample_002", 
+      source: "youtube",
+      external_id: "9bZkp7q19f0",  // Another example
+      title: "Sample YouTube Video 2",
+      artist: "Another Artist",
+      youtube_views: 2000,
+      region: "Northern",
+      published_at: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
+      score: 0
+    }
+  ];
 }
 
 async function runYoutubePull(env: Env): Promise<{ success: boolean; message: string; status?: number }> {
@@ -23,7 +50,13 @@ async function runYoutubePull(env: Env): Promise<{ success: boolean; message: st
     return { success: false, message: error };
   }
 
-  const payload = { items: [] };
+  // ✅ FIXED: Send actual sample data instead of empty array
+  const payload = { 
+    items: getSampleYouTubeData(),
+    source: "worker_cron",
+    timestamp: new Date().toISOString()
+  };
+
   const maxRetries = 3;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -36,6 +69,7 @@ async function runYoutubePull(env: Env): Promise<{ success: boolean; message: st
         requestId,
         attempt,
         url,
+        items_count: payload.items.length,
         timestamp: new Date().toISOString()
       }));
 
@@ -60,6 +94,7 @@ async function runYoutubePull(env: Env): Promise<{ success: boolean; message: st
         status: response.status,
         ok: response.ok,
         durationMs: duration,
+        response_preview: responseText.substring(0, 200),
         timestamp: new Date().toISOString()
       }));
 
@@ -76,7 +111,7 @@ async function runYoutubePull(env: Env): Promise<{ success: boolean; message: st
         requestId,
         attempt,
         status: response.status,
-        error: responseText.substring(0, 200),
+        error: responseText.substring(0, 500),
         durationMs: duration
       }));
 
@@ -115,16 +150,16 @@ export default {
     const url = new URL(request.url);
     const requestId = crypto.randomUUID();
     
-    // SIMPLE HEALTH CHECK ONLY
     if (url.pathname === '/health') {
       const responseData = {
         service: 'UG Board YouTube Cron Worker',
-        version: '3.0-cron-only',
+        version: '3.1-fixed',
         status: 'healthy',
-        engine_url_set: !!env.ENGINE_BASE_URL,
+        engine_url: env.ENGINE_BASE_URL,
+        engine_url_valid: validateUrl(env.ENGINE_BASE_URL),
         has_internal_token: !!env.INTERNAL_TOKEN,
-        cron_schedule: 'Every 30 minutes (e.g., 2:00, 2:30, 3:00)',
-        note: 'Cron-only operation - no manual triggers',
+        cron_schedule: 'Every 30 minutes',
+        next_cron_estimate: 'Next run in ~30 minutes',
         timestamp: new Date().toISOString(),
         requestId
       };
@@ -141,21 +176,50 @@ export default {
       );
     }
 
-    // DEFAULT RESPONSE - SIMPLE INFO
+    // ✅ ADD MANUAL TRIGGER ENDPOINT FOR TESTING
+    if (url.pathname === '/trigger') {
+      const result = await runYoutubePull(env);
+      
+      return new Response(
+        JSON.stringify({
+          service: 'UG Board YouTube Worker',
+          manual_trigger: true,
+          success: result.success,
+          message: result.message,
+          engine_url: env.ENGINE_BASE_URL,
+          timestamp: new Date().toISOString(),
+          requestId
+        }, null, 2),
+        {
+          status: result.success ? 200 : 500,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Request-ID': requestId
+          }
+        }
+      );
+    }
+
     return new Response(
       JSON.stringify({
         service: 'UG Board YouTube Cron Worker',
-        version: '3.0-cron-only',
-        description: 'Automated YouTube ingestion via cron schedule',
+        version: '3.1-fixed',
+        description: 'Automated YouTube ingestion for UG Board Engine',
         endpoints: [
           {
             method: 'GET',
             path: '/health',
-            description: 'Health check and status'
+            description: 'Health check and configuration'
+          },
+          {
+            method: 'GET', 
+            path: '/trigger',
+            description: 'Manual trigger for testing'
           }
         ],
         cron_schedule: 'Every 30 minutes',
-        note: 'This worker runs automatically on schedule. No manual triggers.',
+        engine_url: env.ENGINE_BASE_URL,
+        note: `Worker will send data to: ${env.ENGINE_BASE_URL}/ingest/youtube`,
         requestId,
         timestamp: new Date().toISOString()
       }, null, 2),
@@ -177,6 +241,7 @@ export default {
       event: 'cron_triggered',
       cronId,
       scheduledTime: new Date(event.scheduledTime).toISOString(),
+      engine_url: env.ENGINE_BASE_URL,
       timestamp: new Date().toISOString()
     }));
 
