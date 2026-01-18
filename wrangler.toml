@@ -16,3 +16,23 @@ crons = ["*/30 * * * *"]  # Every 30 minutes
 
 [env]
 # Leave this empty
+name = "youtube-ingestion-worker"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# ✅ ALL TOKENS (some optional)
+[vars]
+ENGINE_BASE_URL = "https://ugboard-engine.onrender.com"
+MAX_RETRIES = "3"
+RETRY_DELAY_MS = "1000"
+# Optional - can be set as secrets instead:
+# INJECTION_TOKEN = "inject-ug-board-2025"
+# ADMIN_TOKEN = "admin-ug-board-2025"
+
+# ✅ Secrets to set in Cloudflare Dashboard:
+# INTERNAL_TOKEN = "1994199620002019866"  (REQUIRED)
+# INJECTION_TOKEN = "inject-ug-board-2025" (OPTIONAL)
+# ADMIN_TOKEN = "admin-ug-board-2025" (OPTIONAL)
+
+[triggers]
+crons = ["*/30 * * * *"]  # Every 30 minutes
