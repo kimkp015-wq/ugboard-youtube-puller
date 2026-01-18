@@ -2,15 +2,14 @@ name = "youtube-ingestion-worker"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
-# THESE ARE YOUR SETTINGS - CHANGE ONLY THE URL
+# ✅ UPDATED TO RENDER URL
 [vars]
-ENGINE_BASE_URL = "https://web-production-c6cb2.up.railway.app"  # ← YOUR RAILWAY URL
+ENGINE_BASE_URL = "https://ugboard-engine.onrender.com"  # ← CHANGED TO RENDER
 MAX_RETRIES = "3"
 RETRY_DELAY_MS = "1000"
 
-# Secrets - we'll set these separately
-# INTERNAL_TOKEN = "1994199620002019866"
-# MANUAL_TRIGGER_TOKEN = "test123"
+# ✅ Make sure this secret is set in Cloudflare Dashboard
+# INTERNAL_TOKEN = "1994199620002019866"  # Set as SECRET in dashboard
 
 [triggers]
 crons = ["*/30 * * * *"]  # Every 30 minutes
